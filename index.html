@@ -120,6 +120,8 @@ textarea.inp{min-height:140px;font-size:14px;line-height:1.5;resize:vertical}
 .lad svg{width:100%;height:auto;display:block;margin:6px 0}
 .lpz{margin:0 2px;border-radius:12px;padding:8px 2px;font-size:12.5px;min-height:46px;display:flex;align-items:center;justify-content:center;text-align:center;background:var(--ink);color:#fff;font-weight:700;word-break:keep-all;line-height:1.2}
 .lad.done .lpz{font-size:15px}
+.ladadmin{margin:14px 0 4px;padding:12px;border:2px dashed var(--fire2);border-radius:16px;text-align:center}
+.ladadmin .btn{padding:13px 22px}
 .lpz.hide{background:#d9d2c2;color:#8b8577;font-size:20px}
 .lpz.kkwang{background:#e9e4d8;color:var(--sub)}
 .lpz.mine{outline:3px solid var(--fire);outline-offset:1px}
@@ -364,6 +366,22 @@ button.wrow:disabled{cursor:default;opacity:1}
 .seat.me span,.seat.me small{color:#fff}
 .seatme{font-size:17px}
 .seatnb{font-size:14.5px;font-weight:600;margin-top:8px;line-height:1.6}
+
+.mfsecret{background:#3a1020;border:1px solid #6b2236;border-radius:18px;padding:12px;margin-top:14px;text-align:left;color:#ffe9ec}
+.mfs-title{font-weight:900;font-size:15px;margin-bottom:8px}
+.mfs-title small{font-weight:600;font-size:11.5px;opacity:.7;margin-left:6px}
+.mfs-picks{display:flex;flex-direction:column;gap:4px;margin-bottom:8px;font-size:14px}
+.mfs-pick{background:rgba(255,255,255,.08);border-radius:10px;padding:6px 10px}
+.mfsecret .muted{color:#e7b9c2}
+.mfs-feed{background:rgba(0,0,0,.25);border-radius:12px;padding:8px;max-height:150px;overflow:auto;display:flex;flex-direction:column;gap:5px}
+.mfs-feed .fmsg{background:rgba(255,255,255,.1);color:#fff}
+.mfs-feed .fmsg b{color:#ffb3c1}
+.mfs-feed .fmsg.me{background:rgba(193,39,45,.55)}
+.mfsecret .lrform input{border-color:#c1272d}
+.mfsecret .lrform button{background:#c1272d}
+.matetag{font-style:normal;font-size:11.5px;font-weight:800;color:#ffb3c1;background:rgba(193,39,45,.35);padding:2px 7px;border-radius:999px;margin-left:auto}
+
+.chat-lock{flex:none;margin:10px 12px 0;padding:10px 12px;border-radius:12px;background:#2b2a4a;color:#f1efff;font-size:13.5px;font-weight:700;line-height:1.45}
 /* toast & confetti */
 #toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:11px 18px;border-radius:999px;font-size:14px;opacity:0;transition:.25s;pointer-events:none;z-index:50;max-width:90vw;text-align:center}
 #toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -652,6 +670,7 @@ function enter() {
     <section class="panel chatp hidden" id="p-chat">
       <div class="chat-head">${admin ? `<b>운영진 화면</b> · 빨간 글씨 실명은 운영진에게만 보여요. 메시지 옆 ✕로 삭제할 수 있어요.`
         : `<b>익명 채팅</b> · 나는 <b>${esc(S.member.alias)}</b>(으)로 보여요. 다른 참여자는 누가 썼는지 알 수 없어요 (운영진만 확인 가능).`}</div>
+      <div class="chat-lock hidden" id="chat-lock"></div>
       <div class="chat-list" id="chat-list"></div>
       <form class="chat-form" id="chat-form"><input id="chat-in" maxlength="300" placeholder="${admin ? "운영진 공지 보내기" : "메시지 입력"}" autocomplete="off"><button>전송</button></form>
     </section>
@@ -673,7 +692,7 @@ function enter() {
   form.onsubmit = async e => {
     e.preventDefault();
     const text = inp.value.trim(); if (!text) return;
-    if (chatLocked()) return toast("마피아 게임에서 죽어서 게임이 끝날 때까지 채팅할 수 없어요 🤫");
+    if (chatLocked()) return toast("게임 진행 중엔 전체 채팅이 닫혀요 🤫");
     if (Date.now() - lastSend < 800) return toast("조금만 천천히 보내주세요");
     lastSend = Date.now(); inp.value = "";
     const msg = admin ? { uid: S.me.uid, alias: "운영진", text, ts: B.now(), admin: true } : { uid: S.me.uid, alias: S.member.alias, text, ts: B.now() };
@@ -698,6 +717,7 @@ function enter() {
     S.lastStageId = v ? v.id : "";
     subStageData(v);
     updateChatLock();
+    leftToast(v);
     renderStage();
   });
   B.on("ladderClaims", v => { S.claims = v || {}; renderStage(); });
@@ -730,15 +750,17 @@ function renderBadge() { const b = $("#badge"); if (!b) return; b.textContent = 
 
 /* ---------- 채팅 ---------- */
 /* 마피아 게임에서 죽은 사람은 게임이 끝날 때까지 채팅 금지 */
+/* 마피아·바보 라이어 진행 중에는 전체 채팅을 닫아요 (운영진 공지는 가능) */
 function chatLocked() {
-  const st = S.stage, myNo = S.rosterMe && S.rosterMe.no;
-  return !S.me.isAdmin && !!st && st.type === "mafia" && st.phase !== "done" && myNo != null && (st.dead || []).some(x => x.no === myNo);
+  const st = S.stage;
+  return !S.me.isAdmin && !!st && (st.type === "mafia" || st.type === "liar") && st.phase !== "done";
 }
 function updateChatLock() {
   const inp = $("#chat-in"), btn = $("#chat-form button"); if (!inp) return;
-  const lock = chatLocked();
+  const lock = chatLocked(), gname = S.stage && S.stage.type === "liar" ? "바보 라이어" : "마피아";
   inp.disabled = lock; if (btn) btn.disabled = lock;
-  inp.placeholder = lock ? "💀 죽은 사람은 게임이 끝날 때까지 채팅 금지예요 🤫" : (S.me.isAdmin ? "운영진 공지 보내기" : "메시지 입력");
+  inp.placeholder = lock ? `🤫 ${gname} 진행 중엔 전체 채팅이 닫혀요` : (S.me.isAdmin ? "운영진 공지 보내기" : "메시지 입력");
+  const bn = $("#chat-lock"); if (bn) { bn.classList.toggle("hidden", !lock); bn.textContent = `🤫 ${gname} 게임이 진행 중이라 전체 채팅이 잠시 닫혔어요. 게임이 끝나면 다시 열려요.`; }
 }
 function realName(uid) {
   const m = S.members[uid]; if (!m) return "";
@@ -920,12 +942,22 @@ function buildLadder(st) {
     ${svg}
     <div class="lad-grid" id="lbot">${st.prizes.map((p, c) => `<div class="lpz hide" data-c="${c}">?</div>`).join("")}</div>
     <div class="status" id="lstatus" style="text-align:center"></div>
+    ${S.me.isAdmin ? `<div class="ladadmin">${run
+      ? `<button class="btn ghost" id="lad-again">🔄 같은 설정으로 다시 하기</button>`
+      : `<div class="muted" id="lad-count" style="margin-bottom:8px"></div><div class="row" style="justify-content:center"><button class="btn ghost" id="lad-fill">빈 칸 자동 채우기</button><button class="btn fire" id="lad-run">🏁 출발!</button></div>`}</div>` : ""}
     <div id="mewin"></div>
     <div class="winners" id="lres"></div>
   </div>`;
 }
 function myClaim() { for (const c in S.claims) if (S.claims[c] && S.claims[c].uid === S.me.uid) return +c; return -1; }
 function updateLadderSlots(st) {
+  if (S.me.isAdmin) {
+    const f = $("#lad-fill"), r = $("#lad-run"), ag = $("#lad-again"), cnt = $("#lad-count");
+    if (f) f.onclick = ladderFill;
+    if (r) r.onclick = ladderRun;
+    if (ag) ag.onclick = ladderOpen;
+    if (cnt) cnt.textContent = `${Object.keys(S.claims || {}).length} / ${st.n}칸 선택됨`;
+  }
   const mine = myClaim(), run = st.phase === "run";
   $$("#ltop .lslot").forEach(b => {
     const c = +b.dataset.c, cl = S.claims[c];
@@ -987,6 +1019,8 @@ function driveAll() {
   if (st.type === "updown") updownDrive(st);
   if (st.type === "nunchi") nunchiDrive(st);
   if (st.type === "tap") tapDrive(st);
+  if (st.type === "blink") blinkLeftDrive(st);
+  if (st.type === "ladder") ladderLeftDrive(st);
   if (st.type === "poll" && st.open && st.endAt && B.now() > st.endAt + 500 && !S.pollClosing) { S.pollClosing = true; B.update("stage", { open: false }).finally(() => S.pollClosing = false); }
   if (st.type === "rps" && st.phase === "reveal" && st.nextAt && B.now() > st.nextAt && !S.advancing) rpsNext();
 }
@@ -1739,7 +1773,7 @@ function liarTalkHist(st) {
 }
 function liarDeadList(st) {
   const dead = st.dead || []; if (!dead.length) return "";
-  return `<div class="muted" style="margin-top:12px;font-size:13px">💀 탈락: ${dead.map(x => `#${x.no} ${esc(pName(st, x.no))}${x.liar ? "(바보)" : ""}`).join(" · ")}</div>`;
+  return `<div class="muted" style="margin-top:12px;font-size:13px">💀 탈락: ${dead.map(x => `#${x.no} ${esc(pName(st, x.no))}${x.left ? "(나감)" : x.liar ? "(바보)" : ""}`).join(" · ")}</div>`;
 }
 function buildLiar(st) {
   const { myNo, isP, alive, speaking } = liarMe(st), talk = st.talk || [], order = st.order || [];
@@ -1766,7 +1800,7 @@ function buildLiar(st) {
   }
   if (st.phase === "reveal") {
     const jd = st.judge ? ` (처형 ${st.judge.kill} : 살림 ${st.judge.save})` : "";
-    const msg = st.out == null ? (st.saved ? `🙏 #${st.nominee} ${esc(pName(st, st.nominee))}님을 살려주기로 했어요${jd}` : "🤝 동점이에요! 아무도 지목되지 않았어요") : st.outLiar ? `🎯 #${st.out} ${esc(pName(st, st.out))}님은 바보였어요! 단어 추측 “${esc(st.guess || "…")}” 실패 · 남은 바보를 찾아요` : `😱 #${st.out} ${esc(pName(st, st.out))}님은 바보가 아니었어요… 탈락!${jd}`;
+    const msg = st.out == null && st.nomLeft ? `🚪 지목된 #${st.nominee} ${esc(pName(st, st.nominee))}님이 나가서 탈락했어요` : st.out == null ? (st.saved ? `🙏 #${st.nominee} ${esc(pName(st, st.nominee))}님을 살려주기로 했어요${jd}` : "🤝 동점이에요! 아무도 지목되지 않았어요") : st.outLiar ? `🎯 #${st.out} ${esc(pName(st, st.out))}님은 바보였어요! 단어 추측 “${esc(st.guess || "…")}” 실패 · 남은 바보를 찾아요` : `😱 #${st.out} ${esc(pName(st, st.out))}님은 바보가 아니었어요… 탈락!${jd}`;
     return `<div class="draw">${head}
       <div class="mewin" style="background:#fff;border-color:var(--ink)">${msg}</div>
       ${isP && st.out === myNo ? `<div class="mewin" style="background:#f1ede4;border-color:#cfc6b3;margin-top:8px">💀 내가 탈락했어요… 이제 구경해요 👀</div>` : ""}
@@ -1892,21 +1926,25 @@ function updateLiarTick(st) {
 /* 운영진 화면이 자동 진행을 맡아요 */
 async function liarDrive(st) {
   if (S.liarBusy) return;
+  if (st.phase !== "done" && (st.alive || []).length) {
+    const gone = goneNos("liar" + st.id, st.alive);
+    if (gone.length) { S.liarBusy = true; try { await liarHandleLeft(st, gone); } catch (e) { console.warn(e); } finally { setTimeout(() => S.liarBusy = false, 300); } return; }
+  }
   const now = B.now(), u = (S.sd || {}).u || {}, order = st.order || [];
   let job = null;
   if (st.phase === "talk") {
     const no = order[st.turn];
     if (no != null) {
       const uid = Object.keys(u).find(k => u[k].order === st.turn), desc = uid && u[uid].desc;
-      if (desc || now > st.turnEndAt + 400) job = async () => {
-        const talk = (st.talk || []).concat([{ no, text: desc || "" }]), t = st.turn + 1;
+      if (desc || !(st.alive || []).includes(no) || now > st.turnEndAt + 400) job = async () => {
+        const talk = (st.talk || []).concat([{ no, text: desc || ((st.alive || []).includes(no) ? "" : "(나감)") }]), t = st.turn + 1;
         if (t >= order.length) await B.update("stage", { talk, turn: t, phase: "vote", voteEndAt: B.now() + VOTE_MS, voted: 0 });
         else await B.update("stage", { talk, turn: t, turnStartAt: B.now() + 700, turnEndAt: B.now() + 700 + TURN_MS });
       };
     }
   } else if (st.phase === "vote") {
     const voted = Object.values(u).filter(x => x.alive && x.vote != null).length;
-    if (voted >= order.length || now > st.voteEndAt + 400) job = () => liarResolveVote(st);
+    if (voted >= (st.alive || []).length || now > st.voteEndAt + 400) job = () => liarResolveVote(st);
     else if (voted !== st.voted) job = () => B.update("stage", { voted });
   } else if (st.phase === "defense") {
     const nu = Object.values(u).find(x => x.no === st.nominee), def = nu && nu.defense;
@@ -1956,6 +1994,20 @@ async function liarStart() {
   const plist = players.map(p => ({ no: p.no, name: p.name })).sort((a, b) => a.no - b.no);
   await liarBeginRound(id, 1, { category: cat, players: plist, liars, alive: plist.map(p => p.no), dead: [], talkHist: [] }, FIRST_MS);
   setTab("stage");
+}
+async function liarHandleLeft(st, gone) {
+  const g = (await B.get("liar/" + st.id)) || {}, sec = g.secret || {}, liarNos = sec.liarNos || [], upd0 = {};
+  for (const uid in g.u || {}) if (gone.includes(g.u[uid].no)) { upd0[`u/${uid}/alive`] = false; upd0[`u/${uid}/order`] = null; }
+  await B.update("liar/" + st.id, upd0);
+  const alive = st.alive.filter(n => !gone.includes(n));
+  const dead = (st.dead || []).concat(gone.map(no => ({ no, round: st.round, liar: liarNos.includes(no), left: true })));
+  const aliveL = alive.filter(n => liarNos.includes(n)).length, aliveC = alive.length - aliveL;
+  const winner = aliveL === 0 ? "citizen" : aliveC <= aliveL ? "liar" : null;
+  const upd = { alive, dead, leftMsg: { nos: gone, at: B.now() } };
+  const nomGone = ((st.phase === "defense" || st.phase === "judge") && gone.includes(st.nominee)) || (st.phase === "guess" && gone.includes(st.guessNo));
+  if (winner) Object.assign(upd, { phase: "done", winner, liarNos, citizenWord: sec.citizenWord || "", liarWord: sec.liarWord || "", nextAt: null });
+  else if (nomGone) Object.assign(upd, { phase: "reveal", out: null, saved: false, nomLeft: true, talkHist: (st.talkHist || []).concat([{ round: st.round, talk: st.talk || [] }]), nextAt: B.now() + NEXT_MS });
+  await B.update("stage", upd);
 }
 async function liarResolveVote(st) {
   const g = (await B.get("liar/" + st.id)) || {}, tally = {};
@@ -2046,7 +2098,7 @@ function buildMafia(st) {
       ${mfHist(st)}
     </div>`;
   }
-  if (st.phase === "intro") return `<div class="draw">${head}${comp}${card}<div class="status" id="mfstatus"></div><p class="muted">내 역할을 확인하세요! 다른 사람에게 보여주면 안 돼요 🤫</p></div>`;
+  if (st.phase === "intro") return `<div class="draw">${head}${comp}${card}<div class="status" id="mfstatus"></div><p class="muted">내 역할을 확인하세요! 다른 사람에게 보여주면 안 돼요 🤫</p>${me.role === "mafia" && alive ? mfSecretBox(false) : ""}${S.me.isAdmin ? mfSecretBox(true) : ""}</div>`;
   if (st.phase === "morning" || st.phase === "exec") {
     let msg;
     if (st.phase === "morning") { const m = st.nightMsg || {}; msg = m.killed != null ? `☠️ 지난 밤 <b>#${m.killed} ${esc(pName(st, m.killed))}</b>님이 마피아에게 당했어요` : m.saved ? (m.savedNo != null ? `💉 의사가 마피아의 공격에서 <b>#${m.savedNo} ${esc(pName(st, m.savedNo))}</b>님을 살렸어요!<br>아무도 죽지 않았어요` : "💉 의사가 누군가를 살렸어요! 아무도 죽지 않았어요") : "🌅 조용한 밤이었어요. 아무도 죽지 않았어요"; }
@@ -2071,6 +2123,7 @@ function buildMafia(st) {
       ${alive && me.role ? `<p style="font-weight:800;margin:6px 0 10px">${mfPrompt(me.role)}</p><div class="winners">${targets.map(no => `<button class="wrow mft" data-no="${no}"><b>#${no}</b><span style="flex:1">${esc(pName(st, no))}${no === myNo ? " (나)" : ""}</span></button>`).join("")}</div>`
         : `<p class="muted" style="color:#bdb8e0">🌙 밤이에요… 마피아, 경찰, 의사가 몰래 움직이는 중</p>`}
       ${S.me.isAdmin ? `<div class="winners">${(st.alive || []).map(no => `<div class="wrow"><b>#${no}</b><span style="flex:1">${esc(pName(st, no))}</span><span class="mfr" data-r="${no}"></span></div>`).join("")}</div>` : ""}
+      ${me.role === "mafia" && alive ? mfSecretBox(false) : ""}${S.me.isAdmin ? mfSecretBox(true) : ""}
       ${mfDeadList(st)}
     </div>`;
   }
@@ -2109,9 +2162,9 @@ function buildMafia(st) {
   </div>`;
 }
 function updateMafia(st) {
-  if (st.leftMsg && S.mfLeftSeen !== st.leftMsg.at) { if (S.mfLeftSeen !== undefined) toast(`🚪 ${st.leftMsg.nos.map(n => "#" + n + " " + pName(st, n)).join(", ")}님이 나가서 탈락했어요`); S.mfLeftSeen = st.leftMsg.at; }
-  if (S.mfLeftSeen === undefined) S.mfLeftSeen = st.leftMsg ? st.leftMsg.at : null;
   const dh = mfDeadInner(st); $$(".mfdead").forEach(x => { if (x.innerHTML !== dh) x.innerHTML = dh; });
+  if ((st.phase === "intro" || st.phase === "night") && !S.me.isAdmin && (S.sd || {}).role === "mafia" && (st.alive || []).includes(S.rosterMe && S.rosterMe.no) && !$(".mfsecret")) { S.stageKey = ""; return renderStage(); }
+  if (st.phase === "intro" || st.phase === "night") mfSecretUpdate(st);
   if (st.phase !== "done" && !S.me.isAdmin && S.rosterMe && (st.dead || []).some(x => x.no === S.rosterMe.no && x.how === "left") && !$(".mfleftme")) {
     const box = $("#stage .draw"); if (box) box.insertAdjacentHTML("afterbegin", `<div class="mewin mfleftme" style="background:#f1ede4;border-color:#cfc6b3;margin-bottom:10px">🚪 접속이 끊겨서 탈락 처리됐어요. 끝날 때까지 구경해요 🤫</div>`);
   }
@@ -2160,7 +2213,11 @@ function updateMafia(st) {
   $$(".mft").forEach(b => {
     const no = +b.dataset.no;
     b.classList.toggle("voted", !!field && d[field] === no);
-    b.onclick = () => { if (field && alive && !b.disabled) B.set(`mafia/${st.id}/u/${S.me.uid}/${field}`, no).catch(() => toast("시간이 끝났어요")); };
+    b.onclick = () => {
+      if (!(field && alive && !b.disabled)) return;
+      B.set(`mafia/${st.id}/u/${S.me.uid}/${field}`, no).catch(() => toast("시간이 끝났어요"));
+      if (field === "act" && d.role === "mafia") B.set(`mafia/${st.id}/mt/${S.me.uid}`, { no: myNo, t: no }).catch(() => { });
+    };
   });
   if (S.me.isAdmin) {
     const sec = d.secret || {}, roles = sec.roles || {}, uids = (d.meta || {}).uids || {}, u = d.u || {};
@@ -2204,7 +2261,7 @@ function mfBuildU(g, alive, order) {
 }
 async function mafiaBeginNight(st, day) {
   const g = (await B.get("mafia/" + st.id)) || {};
-  await B.update("mafia/" + st.id, { u: mfBuildU(g, st.alive, null) });
+  await B.update("mafia/" + st.id, { u: mfBuildU(g, st.alive, null), mt: null });
   await B.update("stage", { phase: "night", day, endAt: B.now() + MF.NIGHT, acted: 0, tally: null, out: null, outRole: null, nightMsg: null });
 }
 async function mafiaResolveNight(st) {
@@ -2369,6 +2426,80 @@ async function mafiaSkip() {
 }
 
 
+
+/* ---------- 마피아 전용: 동료 선택 + 비밀 채팅 ---------- */
+function mfSecretBox(admin) {
+  return `<div class="mfsecret">
+    <div class="mfs-title">🔪 마피아 작전 회의 <small>${admin ? "운영진은 몰래 보는 중 👀" : "마피아끼리만 보여요"}</small></div>
+    <div class="mfs-picks" id="mfpicks"></div>
+    <div class="mfs-feed" id="mfchatfeed"></div>
+    ${admin ? "" : `<form class="lrform" id="mfchatform"><input id="mfchatin" maxlength="100" autocomplete="off" placeholder="동료 마피아에게만 보내기"><button>전송</button></form>`}
+  </div>`;
+}
+function mfSecretUpdate(st) {
+  if (!$(".mfsecret")) return;
+  const admin = S.me.isAdmin, d = S.sd || {};
+  if (!admin) {
+    if (S.mfSecKey !== st.id) {
+      if (S.mfSecUnsub) S.mfSecUnsub.forEach(f => f());
+      S.mfSecKey = st.id; S.mfMt = {}; S.mfChat = [];
+      S.mfSecUnsub = [
+        B.on(`mafia/${st.id}/mt`, v => { S.mfMt = v || {}; mfSecretRender(S.stage); }),
+        B.onLast(`mafia/${st.id}/mchat`, 100, arr => { S.mfChat = arr; mfSecretRender(S.stage); })
+      ];
+    }
+  } else {
+    S.mfMt = d.mt || {};
+    S.mfChat = Object.entries(d.mchat || {}).map(([id, x]) => ({ id, ...x })).sort((a, b) => a.ts - b.ts);
+  }
+  const f = $("#mfchatform");
+  if (f && !f.onsubmit) f.onsubmit = async e => {
+    e.preventDefault(); const v = $("#mfchatin").value.trim(); if (!v) return;
+    $("#mfchatin").value = "";
+    try { await B.push(`mafia/${st.id}/mchat`, { no: S.rosterMe.no, text: v, ts: B.now() }); } catch (er) { toast("전송 실패"); }
+  };
+  mfSecretRender(st);
+}
+function mfSecretRender(st) {
+  if (!st || st.type !== "mafia") return;
+  const pk = $("#mfpicks"), fd = $("#mfchatfeed"); if (!pk || !fd) return;
+  const d = S.sd || {}, myNo = S.rosterMe && S.rosterMe.no;
+  const mafias = S.me.isAdmin ? Object.entries((d.secret || {}).roles || {}).filter(([, r]) => r === "mafia").map(([n]) => +n) : [myNo, ...(d.mates || [])];
+  const picks = {}; Object.values(S.mfMt || {}).forEach(x => { if (x && x.no != null) picks[x.no] = x.t; });
+  const alive = st.alive || [];
+  const ph = st.phase === "night"
+    ? mafias.filter(n => alive.includes(n)).map(n => `<div class="mfs-pick">${n === myNo ? "나" : `#${n} ${esc(pName(st, n))}`} → ${picks[n] != null ? `<b>#${picks[n]} ${esc(pName(st, picks[n]))}</b>` : `<span class="muted">고민 중…</span>`}</div>`).join("")
+    : `<div class="muted" style="font-size:12.5px">밤이 되면 서로 누구를 골랐는지 여기 보여요</div>`;
+  if (pk.innerHTML !== ph) pk.innerHTML = ph;
+  const ch = (S.mfChat || []).length ? S.mfChat.map(m => `<div class="fmsg ${m.no === myNo ? "me" : ""}"><b>${m.no === myNo ? "나" : `#${m.no} ${esc(pName(st, m.no))}`}</b> ${esc(m.text)}</div>`).join("") : `<div class="muted" style="font-size:12.5px;text-align:center;padding:6px">작전을 짜보세요 🤫</div>`;
+  if (fd.dataset.sig !== ch) { fd.dataset.sig = ch; fd.innerHTML = ch; fd.scrollTop = fd.scrollHeight; }
+  // 대상 버튼에 동료 선택 표시
+  if (!S.me.isAdmin && st.phase === "night") $$(".mft").forEach(b => {
+    const no = +b.dataset.no, who = mafias.filter(n => n !== myNo && picks[n] === no);
+    let tag = b.querySelector(".matetag");
+    if (who.length) { if (!tag) { tag = document.createElement("em"); tag.className = "matetag"; b.appendChild(tag); } tag.textContent = `동료 ${who.map(n => "#" + n).join(",")} 선택`; }
+    else if (tag) tag.remove();
+  });
+}
+
+/* ---------- 공통: 게임 중 접속 끊김 → 자동 탈락 ---------- */
+const LEFT_GRACE = 30000;
+/* nos 중 30초 넘게 접속이 끊긴 번호 (운영진 화면에서 계산) */
+function goneNos(key, nos) {
+  S.offSince = S.offSince || {}; const m = S.offSince[key] = S.offSince[key] || {};
+  const on = new Set(onlinePlayers().map(p => p.no)), now = Date.now(), out = [];
+  for (const n of nos || []) { if (on.has(n)) { delete m[n]; continue; } if (!m[n]) m[n] = now; else if (now - m[n] > (S.leftGrace || LEFT_GRACE)) out.push(n); }
+  return out;
+}
+function leftToast(st) {
+  if (!st || !st.leftMsg) { if (S.leftSeen === undefined) S.leftSeen = null; return; }
+  if (S.leftSeen === undefined) { S.leftSeen = st.leftMsg.at; return; }
+  if (S.leftSeen === st.leftMsg.at) return;
+  S.leftSeen = st.leftMsg.at;
+  const nm = n => { const p = (st.players || st.plist || []).find(x => (x.no ?? x) === n); return p && p.name && (S.me.isAdmin || st.type === "liar" || st.type === "mafia") ? " " + p.name : ""; };
+  toast(`🚪 ${st.leftMsg.nos.map(n => "#" + n + nm(n)).join(", ")}님이 접속이 끊겨서 탈락했어요`);
+}
+
 /* ---------- 공통: 게임 참가자 지정 ---------- */
 function parseNos(text) {
   const out = new Set();
@@ -2517,11 +2648,12 @@ function nunchiCalc(st, presses) {
   const list = Object.values(presses || {}).filter(p => players.has(p.no) && p.t).sort((a, b) => a.t - b.t);
   const groups = [];
   for (const p of list) { const g = groups[groups.length - 1]; if (g && p.t - g[g.length - 1].t < st.win) g.push(p); else groups.push([p]); }
-  const pressed = new Set(list.map(p => p.no)), notYet = [...players].filter(n => !pressed.has(n));
-  const out = new Set(); groups.forEach(g => { if (g.length > 1) g.forEach(p => out.add(p.no)); });
+  const left = new Set(st.left || []);
+  const pressed = new Set(list.map(p => p.no)), notYet = [...players].filter(n => !pressed.has(n) && !left.has(n));
+  const out = new Set(left); groups.forEach(g => { if (g.length > 1) g.forEach(p => out.add(p.no)); });
   const ended = st.phase === "done" || notYet.length <= 1 || B.now() > st.endAt;
   if (ended) notYet.forEach(n => out.add(n));
-  return { groups, notYet, out, ended };
+  return { groups, notYet, out, ended, left: [...left] };
 }
 function buildNunchi(st) {
   return `<div class="draw">
@@ -2553,11 +2685,12 @@ function updateNunchi(st) {
   const s = $("#ncstatus");
   const stT = st.phase === "done" || c.ended ? `끝! 탈락 ${c.out.size}명` : now < st.startAt ? "곧 시작해요! 눈치 보세요 👀" : `지금 ${c.groups.length}까지 · 남은 ${c.notYet.length}명 · ⏱️ ${Math.max(0, Math.ceil((st.endAt - now) / 1000))}초`;
   if (s && s.textContent !== stT) s.textContent = stT;
-  const feed = $("#ncfeed"), fsig = c.groups.map(g => g.map(p => p.no).join("+")).join(",") + (c.ended ? "E" : "");
+  const feed = $("#ncfeed"), fsig = c.groups.map(g => g.map(p => p.no).join("+")).join(",") + (c.ended ? "E" : "") + "L" + c.left.join(",");
   if (feed && feed.dataset.sig !== fsig) {
     feed.dataset.sig = fsig;
     feed.innerHTML = c.groups.map((g, i) => `<div class="ncrow ${g.length > 1 ? "boom" : ""}"><b>${i + 1}</b><span>${g.map(p => who(p.no)).join(" · ")}</span>${g.length > 1 ? "<em>💥 동시!</em>" : ""}</div>`).reverse().join("")
-      + (c.ended && c.notYet.length ? `<div class="ncrow boom"><b>❌</b><span>${c.notYet.map(who).join(" · ")}</span><em>못 누름</em></div>` : "");
+      + (c.ended && c.notYet.length ? `<div class="ncrow boom"><b>❌</b><span>${c.notYet.map(who).join(" · ")}</span><em>못 누름</em></div>` : "")
+      + (c.left.length ? `<div class="ncrow boom"><b>🚪</b><span>${c.left.map(who).join(" · ")}</span><em>나감</em></div>` : "");
   }
   if (c.ended) {
     const bad = inGame && c.out.has(myNo), mw = $("#mewin");
@@ -2576,10 +2709,57 @@ async function nunchiStart() {
 }
 async function nunchiDrive(st) {
   if (st.phase === "done" || S.ncBusy) return;
+  if (B.now() >= st.startAt) {
+    const c0 = nunchiCalc(st, S.sd), gone = goneNos("nc" + st.id, c0.notYet);
+    if (gone.length) { S.ncBusy = true; try { await B.update("stage", { left: (st.left || []).concat(gone), leftMsg: { nos: gone, at: B.now() } }); } finally { setTimeout(() => S.ncBusy = false, 300); } return; }
+  }
   const c = nunchiCalc(st, S.sd);
   if (!c.ended) return;
   S.ncBusy = true;
   try { await B.update("stage", { phase: "done", losers: [...c.out] }); } finally { setTimeout(() => S.ncBusy = false, 300); }
+}
+
+
+/* 깜빡이: 아직 살아있는 사람이 나가면 다음 탈락 그룹으로 옮김 (우승자가 나가면 새 우승자) */
+async function blinkLeftDrive(st) {
+  if (S.bkBusy) return;
+  const f = blinkState(st, B.now()); if (f.phase === "done" || f.phase === "wait") return;
+  const cur = f.r; if (cur >= st.rounds.length) return;
+  const outSoFar = new Set(); for (let i = 0; i < cur; i++) st.rounds[i].forEach(n => outSoFar.add(n));
+  const remaining = st.players.map(p => p.no).filter(n => !outSoFar.has(n) && !(st.left || []).includes(n));
+  const gone = goneNos("bk" + st.id, remaining); if (!gone.length) return;
+  let rounds = st.rounds.map(r => r.slice()), winner = st.winner; const moved = [];
+  for (const n of gone) {
+    if (n === winner) {
+      const last = rounds.length - 1, cand = rounds[last].filter(x => !gone.includes(x));
+      if (!cand.length) continue;
+      winner = cand[cand.length - 1]; rounds[last] = rounds[last].filter(x => x !== winner);
+      if (!rounds[cur].includes(n)) rounds[cur].push(n); moved.push(n);
+    } else {
+      const j = rounds.findIndex(r => r.includes(n));
+      if (j > cur) { rounds[j] = rounds[j].filter(x => x !== n); rounds[cur].push(n); }
+      moved.push(n);
+    }
+  }
+  if (!moved.length) return;
+  rounds = rounds.filter((r, i) => i <= cur || r.length);
+  S.bkBusy = true;
+  try {
+    await B.update("stage", { rounds, winner, left: (st.left || []).concat(moved), leftMsg: { nos: moved, at: B.now() } });
+    if (st.prize && winner !== st.winner) { const w = st.players.find(p => p.no === winner); await B.update("history", { [st.id + "_w"]: { game: "blink", prize: st.prize, no: w.no, name: w.name, ts: st.startAt + rounds.length * st.per + (rounds.length - 1) * (st.gap || 0) } }); }
+  } finally { setTimeout(() => S.bkBusy = false, 300); }
+}
+/* 사다리: 칸 고르기 중에 나간 사람의 칸은 비워줌 */
+async function ladderLeftDrive(st) {
+  if (st.phase !== "claim" || S.ldBusy) return;
+  const cl = S.claims || {}, nos = Object.values(cl).filter(c => c && !String(c.uid).startsWith("auto_")).map(c => c.no);
+  const gone = goneNos("ld" + st.id, nos); if (!gone.length) return;
+  S.ldBusy = true;
+  try {
+    const upd = {}; for (const c in cl) if (cl[c] && gone.includes(cl[c].no)) upd[c] = null;
+    await B.update("ladderClaims", upd);
+    await B.update("stage", { leftMsg: { nos: gone, at: B.now() } });
+  } finally { setTimeout(() => S.ldBusy = false, 300); }
 }
 
 /* ---------- 순발력 터치 배틀 ---------- */
