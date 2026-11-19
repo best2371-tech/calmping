@@ -1035,6 +1035,7 @@ function driveAll() {
   if (st.type === "tap") tapDrive(st);
   if (st.type === "blink") blinkLeftDrive(st);
   if (st.type === "ladder") ladderLeftDrive(st);
+  if (st.type === "quiz") quizDrive(st);
   if (st.type === "poll" && st.open && st.endAt && B.now() > st.endAt + 500 && !S.pollClosing) { S.pollClosing = true; B.update("stage", { open: false }).finally(() => S.pollClosing = false); }
   if (st.type === "rps" && st.phase === "reveal" && st.nextAt && B.now() > st.nextAt && !S.advancing) rpsNext();
 }
@@ -1054,6 +1055,7 @@ function tick() {
   else if (st.type === "nunchi") updateNunchi(st);
   else if (st.type === "tap") updateTapTick(st);
   else if (st.type === "seat") updateSeat(st);
+  else if (st.type === "quiz") updateQuiz(st);
 }
 
 /* ---------- 관리자 ---------- */
@@ -1111,9 +1113,11 @@ function renderAdmin() {
   <div class="card">
     <h3>🎬 명대사로 영화 맞히기</h3>
     <p class="muted" style="margin:0 0 10px">한국 영화 20문제 + 할리우드 10문제. 모두의 폰에 명대사가 뜨면 <b>영화 제목을 입력</b>해서 맞혀요(문제당 3번까지). 띄어쓰기·오타 한 글자 정도는 정답으로 쳐줘요.<br>
-    <b>점수:</b> 힌트 전에 맞히면 2점, 힌트 후 1점, 문제마다 <b>제일 먼저</b> 맞힌 사람 +1 보너스. 문제를 넘기는 버튼은 시작하면 퀴즈 화면에 나와요.</p>
+    <b>점수:</b> 힌트 전에 맞히면 2점, 힌트 후 1점, 문제마다 <b>제일 먼저</b> 맞힌 사람 +1 보너스. <b>15초 안에 3명이 못 맞히면 힌트가 자동 공개</b>되고, <b>3명이 맞히면 자동으로 정답 공개 → 5초 뒤 다음 문제</b>로 넘어가요. 그 전에 운영진이 힌트·정답 공개·건너뛰기를 직접 할 수도 있어요(버튼은 퀴즈 화면에 나와요).</p>
     <div class="row">
       <div class="field" style="flex:1"><label>경품 (1등 · 비워두면 기록만)</label><input class="inp" id="qz-prize" placeholder="예: 오리지널기어 굿즈"></div>
+      <div class="field" style="flex:1"><label>자동 넘김 (몇 명 맞히면)</label><input class="inp" id="qz-need" type="number" min="1" value="3"></div>
+      <div class="field" style="flex:1"><label>힌트 자동 공개(초) · 0=끄기</label><input class="inp" id="qz-hint" type="number" min="0" value="15"></div>
       <div class="field" style="flex:1"><label>시작 문제</label><select class="inp" id="qz-from"><option value="0">Q.01부터 (전체)</option><option value="20">Q.21부터 (할리우드)</option></select></div>
     </div>
     <button class="btn fire" id="qz-go" style="width:100%">🎬 퀴즈 시작</button>
@@ -3248,14 +3252,31 @@ function updateQuiz(st) {
   }
   if (st.phase === "done" && !S.fired.has("qzd" + st.id)) { S.fired.add("qzd" + st.id); const sc = quizScores(st); confetti(sc[0] && S.rosterMe && sc[0].no === S.rosterMe.no ? 260 : 100); }
   const stt = $("#qzstatus");
-  if (stt) { const t = st.phase === "q" ? "명대사를 보고 영화 제목을 맞혀보세요!" : st.phase === "hint" ? "힌트 공개! 이제 맞히면 1점" : ""; if (stt.textContent !== t) stt.textContent = t; }
+  if (stt) {
+    const last = st.turn >= QUIZ_SET.length - 1;
+    const hl = st.hintSec && st.qAt ? Math.max(0, Math.ceil((st.qAt + st.hintSec * 1000 - B.now()) / 1000)) : 0;
+    const t = st.phase === "q" ? `명대사를 보고 영화 제목을 맞혀보세요! (${st.need || 3}명 맞히면 정답 공개)${hl ? ` · 💡 ${hl}초 뒤 힌트` : ""}` : st.phase === "hint" ? "힌트 공개! 이제 맞히면 1점" : st.phase === "ans" && st.nextAt ? `⏱️ ${Math.max(0, Math.ceil((st.nextAt - B.now()) / 1000))}초 뒤 ${last ? "최종 결과 발표" : "다음 문제"}!` : "";
+    if (stt.textContent !== t) { stt.textContent = t; stt.style.color = st.phase === "ans" ? "var(--fire)" : ""; stt.style.fontSize = st.phase === "ans" ? "17px" : ""; }
+  }
 }
 async function quizStart() {
   const from = parseInt($("#qz-from").value) || 0;
-  await B.set("stage", { type: "quiz", id: newId(), turn: from, qk: "q" + from, phase: "q", prize: $("#qz-prize").value.trim(), allow: allowOf(), qAt: B.now(), hintAt: {}, qres: {} });
+  await B.set("stage", { type: "quiz", id: newId(), turn: from, qk: "q" + from, phase: "q", prize: $("#qz-prize").value.trim(), need: Math.max(1, parseInt($("#qz-need").value) || 3), hintSec: Math.max(0, parseInt($("#qz-hint").value) || 0), allow: allowOf(), qAt: B.now(), hintAt: {}, qres: {} });
   setTab("stage");
 }
-async function quizAction(a) {
+/* 운영진 화면: N명 맞히면 자동 정답 공개 → 5초 뒤 다음 문제 */
+function quizDrive(st) {
+  if (S.qzBusy) return;
+  if (st.phase === "q" || st.phase === "hint") {
+    const q = QUIZ_SET[st.turn]; if (!q) return;
+    const cnt = Object.values(((S.sd || {}).a || {})[st.qk] || {}).filter(x => x && quizCorrect(q, x.text)).length;
+    const elig = st.allow ? onlinePlayers().filter(p => st.allow.includes(p.no)).length : onlinePlayers().length;
+    const need = Math.max(1, Math.min(st.need || 3, elig || 1));
+    if (cnt >= need) quizAction("ans", true);
+    else if (st.phase === "q" && st.hintSec && st.qAt && B.now() > st.qAt + st.hintSec * 1000) quizAction("hint");
+  } else if (st.phase === "ans" && st.nextAt && B.now() > st.nextAt) quizAction(st.turn >= QUIZ_SET.length - 1 ? "done-auto" : "next");
+}
+async function quizAction(a, auto) {
   const st = S.stage; if (!st || st.type !== "quiz" || S.qzBusy) return;
   S.qzBusy = true;
   try {
@@ -3264,15 +3285,16 @@ async function quizAction(a) {
       const q = QUIZ_SET[st.turn], ans = (((await B.get("quiz/" + st.id)) || {}).a || {})[st.qk] || {}, hAt = (st.hintAt || {})["q" + st.turn];
       const ok = Object.values(ans).filter(x => x && x.no != null && quizCorrect(q, x.text)).sort((x, y) => x.t - y.t);
       const res = ok.map((x, i) => ({ no: x.no, pts: (hAt && x.t >= hAt ? 1 : 2) + (i === 0 ? 1 : 0) }));
-      await B.update("stage", { phase: "ans", ["qres/q" + st.turn]: res });
+      await B.update("stage", { phase: "ans", ["qres/q" + st.turn]: res, nextAt: auto ? B.now() + 5000 : null });
     }
     else if (a === "board") await B.update("stage", { phase: "board" });
     else if (a === "next" || a === "skip") {
       const n = st.turn + 1;
       if (n >= QUIZ_SET.length) return quizFinish(st);
-      await B.update("stage", { phase: "q", turn: n, qk: "q" + n, qAt: B.now() });
+      await B.update("stage", { phase: "q", turn: n, qk: "q" + n, qAt: B.now(), nextAt: null });
     }
     else if (a === "done") { if (st.phase === "done" || confirm("퀴즈를 끝내고 최종 결과를 발표할까요?")) await quizFinish(st); }
+    else if (a === "done-auto") await quizFinish(st);
     else if (a === "end") await B.set("stage", { type: "idle", id: newId(), msg: "곧 다음 게임이 시작돼요!" });
   } finally { setTimeout(() => S.qzBusy = false, 300); }
 }
