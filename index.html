@@ -382,6 +382,18 @@ button.wrow:disabled{cursor:default;opacity:1}
 .matetag{font-style:normal;font-size:11.5px;font-weight:800;color:#ffb3c1;background:rgba(193,39,45,.35);padding:2px 7px;border-radius:999px;margin-left:auto}
 
 .chat-lock{flex:none;margin:10px 12px 0;padding:10px 12px;border-radius:12px;background:#2b2a4a;color:#f1efff;font-size:13.5px;font-weight:700;line-height:1.45}
+
+/* quiz */
+.qzcard{background:var(--ink);color:#fff;border-radius:24px;padding:22px 18px 24px;position:relative;margin-bottom:10px}
+.qzmark{font-size:64px;line-height:.6;color:var(--fire2);font-family:Georgia,serif;text-align:left;height:28px}
+.qzquote{font-size:24px;font-weight:900;line-height:1.4;word-break:keep-all}
+.qztrans{font-size:15px;opacity:.75;margin-top:10px}
+.qzhint{background:#fff8dd;border:2px solid var(--gold);border-radius:16px;padding:12px 14px;font-weight:800;font-size:15px;margin-bottom:10px;animation:pop .4s}
+.qzans{background:linear-gradient(135deg,var(--fire),var(--gold));color:#fff;border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:4px;animation:pop .5s}
+.qzans small{font-weight:800;opacity:.85}
+.qzans b{font-size:28px;font-weight:900;word-break:keep-all}
+.qzans span{font-size:14px;font-weight:700}
+.quizctl .btn{padding:12px 18px}
 /* toast & confetti */
 #toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:11px 18px;border-radius:999px;font-size:14px;opacity:0;transition:.25s;pointer-events:none;z-index:50;max-width:90vw;text-align:center}
 #toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -827,6 +839,7 @@ function renderStage() {
     else if (st.type === "tap") el.innerHTML = buildTap(st);
     else if (st.type === "rank") { el.innerHTML = `<div id="rkhost"></div>`; RK.mount($("#rkhost"), rankingData(), st); }
     else if (st.type === "seat") el.innerHTML = buildSeat(st);
+    else if (st.type === "quiz") el.innerHTML = buildQuiz(st);
     else el.innerHTML = buildIdle(st);
     S.drawState = {};
   }
@@ -839,6 +852,7 @@ function renderStage() {
   else if (st.type === "updown") updateUpdown(st);
   else if (st.type === "nunchi") updateNunchi(st);
   else if (st.type === "tap") updateTapBoard(st);
+  else if (st.type === "quiz") updateQuiz(st);
 }
 function buildIdle(st) {
   const msg = st.msg || "곧 럭키드로우가 시작돼요!";
@@ -1095,6 +1109,17 @@ function renderAdmin() {
   </div>
 
   <div class="card">
+    <h3>🎬 명대사로 영화 맞히기</h3>
+    <p class="muted" style="margin:0 0 10px">한국 영화 20문제 + 할리우드 10문제. 모두의 폰에 명대사가 뜨면 <b>영화 제목을 입력</b>해서 맞혀요(문제당 3번까지). 띄어쓰기·오타 한 글자 정도는 정답으로 쳐줘요.<br>
+    <b>점수:</b> 힌트 전에 맞히면 2점, 힌트 후 1점, 문제마다 <b>제일 먼저</b> 맞힌 사람 +1 보너스. 문제를 넘기는 버튼은 시작하면 퀴즈 화면에 나와요.</p>
+    <div class="row">
+      <div class="field" style="flex:1"><label>경품 (1등 · 비워두면 기록만)</label><input class="inp" id="qz-prize" placeholder="예: 오리지널기어 굿즈"></div>
+      <div class="field" style="flex:1"><label>시작 문제</label><select class="inp" id="qz-from"><option value="0">Q.01부터 (전체)</option><option value="20">Q.21부터 (할리우드)</option></select></div>
+    </div>
+    <button class="btn fire" id="qz-go" style="width:100%">🎬 퀴즈 시작</button>
+  </div>
+
+  <div class="card">
     <h3>🪑 랜덤 자리 배치</h3>
     <p class="muted" style="margin:0 0 10px">긴 테이블 하나를 사이에 두고 양쪽에 마주 보고 앉는 배치예요. 누르면 모두의 화면에서 자리가 섞이다가 한 자리씩 공개돼요. 참가자는 위의 <b>게임 참가자 지정</b>을 따라요(비우면 접속자 전체).</p>
     <div class="row">
@@ -1298,6 +1323,7 @@ function renderAdmin() {
   $("#rk-go").onclick = async () => { await B.set("stage", { type: "rank", id: newId(), startAt: B.now() + 3000, speed: parseFloat($("#rk-speed").value) || 1, topN: parseInt($("#rk-top").value) || 15, mode: $("#rk-mode").value || "att" }); setTab("stage"); };
   $("#rk-edit").onclick = () => RKED.open();
   $("#st-go").onclick = seatStart;
+  $("#qz-go").onclick = quizStart;
   $("#rk-info").textContent = rankInfo();
   $("#mf-skip").onclick = mafiaSkip;
   $("#mf-end").onclick = () => { const st = S.stage; if (!st || st.type !== "mafia") return toast("진행 중인 마피아 게임이 없어요"); if (confirm("마피아 게임을 끝내고 대기 화면으로 돌아갈까요?")) B.set("stage", { type: "idle", id: newId(), msg: "곧 다음 게임이 시작돼요!" }); };
@@ -1457,9 +1483,9 @@ async function ladderRun() {
 
 
 /* ---------- 스테이지별 데이터 구독 ---------- */
-const GAME_LABEL = { draw: "번호뽑기", ladder: "사다리타기", race: "선착순", rps: "가위바위보", blink: "깜빡이 서바이벌", liar: "바보 라이어", mafia: "마피아", updown: "업다운", nunchi: "눈치게임", tap: "터치배틀", rank: "참여 랭킹", seat: "자리 배치" };
+const GAME_LABEL = { draw: "번호뽑기", ladder: "사다리타기", race: "선착순", rps: "가위바위보", blink: "깜빡이 서바이벌", liar: "바보 라이어", mafia: "마피아", updown: "업다운", nunchi: "눈치게임", tap: "터치배틀", rank: "참여 랭킹", seat: "자리 배치", quiz: "영화 퀴즈" };
 function subStageData(st) {
-  const path = !st ? "" : st.type === "poll" ? "polls/" + st.id : st.type === "race" ? "race/" + st.id : st.type === "rps" ? "rps/" + st.id : st.type === "liar" ? (S.me.isAdmin ? "liar/" + st.id : `liar/${st.id}/u/${S.me.uid}`) : st.type === "mafia" ? (S.me.isAdmin ? "mafia/" + st.id : `mafia/${st.id}/u/${S.me.uid}`) : st.type === "updown" ? (S.me.isAdmin ? "updown/" + st.id : "") : st.type === "nunchi" ? "nunchi/" + st.id : st.type === "tap" ? "tap/" + st.id : "";
+  const path = !st ? "" : st.type === "poll" ? "polls/" + st.id : st.type === "race" ? "race/" + st.id : st.type === "rps" ? "rps/" + st.id : st.type === "liar" ? (S.me.isAdmin ? "liar/" + st.id : `liar/${st.id}/u/${S.me.uid}`) : st.type === "mafia" ? (S.me.isAdmin ? "mafia/" + st.id : `mafia/${st.id}/u/${S.me.uid}`) : st.type === "updown" ? (S.me.isAdmin ? "updown/" + st.id : "") : st.type === "nunchi" ? "nunchi/" + st.id : st.type === "tap" ? "tap/" + st.id : st.type === "quiz" ? (S.me.isAdmin ? "quiz/" + st.id : `quiz/${st.id}/a/${st.qk}/${S.me.uid}`) : "";
   if (path === S.sdPath) return;
   if (S.sdUnsub) S.sdUnsub();
   S.sdPath = path; S.sd = null; S.sdUnsub = null;
@@ -3116,6 +3142,150 @@ async function seatStart() {
   if (!confirm(`${players.length}명 자리를 배치할까요? (한쪽 ${rows}자리씩)`)) return;
   await B.set("stage", { type: "seat", id: newId(), seats, plist, order, per: parseInt($("#st-speed").value) || 250, head: $("#st-head").value.trim() || "앞쪽", tail: $("#st-tail").value.trim() || "뒤쪽", startAt: B.now() + 3000 });
   setTab("stage");
+}
+
+
+/* ---------- 🎬 명대사로 영화 맞히기 ---------- */
+const QUIZ_SET = [{"n": 1, "cat": "한국영화", "quote": "니가 가라, 하와이", "trans": "", "hint": "2001년 · 부산 · 네 친구의 이야기", "title": "친구", "year": 2001, "who": "동수 (장동건)", "alias": ["친구", "friend"]}, {"n": 2, "cat": "한국영화", "quote": "너나 잘하세요", "trans": "", "hint": "2005년 · 복수 3부작의 마지막", "title": "친절한 금자씨", "year": 2005, "who": "이금자 (이영애)", "alias": ["친절한금자씨", "금자씨", "친절한 금자"]}, {"n": 3, "cat": "한국영화", "quote": "뭣이 중헌디?", "trans": "", "hint": "2016년 · 전라도 시골 마을의 미스터리", "title": "곡성", "year": 2016, "who": "효진 (김환희)", "alias": ["곡성", "the wailing"]}, {"n": 4, "cat": "한국영화", "quote": "어이가 없네", "trans": "", "hint": "2015년 · 형사 vs 재벌 3세", "title": "베테랑", "year": 2015, "who": "조태오 (유아인)", "alias": ["베테랑", "veteran"]}, {"n": 5, "cat": "한국영화", "quote": "아들아, 너는 계획이 다 있구나", "trans": "", "hint": "2019년 · 칸 황금종려상 · 아카데미 작품상", "title": "기생충", "year": 2019, "who": "기택 (송강호)", "alias": ["기생충", "parasite"]}, {"n": 6, "cat": "한국영화", "quote": "느그 서장 남천동 살제?", "trans": "", "hint": "2012년 · 1990년대 부산 · 나쁜 놈들 전성시대", "title": "범죄와의 전쟁: 나쁜놈들 전성시대", "year": 2012, "who": "최익현 (최민식)", "alias": ["범죄와의전쟁", "범죄와의전쟁나쁜놈들전성시대", "나쁜놈들전성시대"]}, {"n": 7, "cat": "한국영화", "quote": "나 이대 나온 여자야", "trans": "", "hint": "2006년 · 화투판의 세계", "title": "타짜", "year": 2006, "who": "정마담 (김혜수)", "alias": ["타짜", "타짜신의손"]}, {"n": 8, "cat": "한국영화", "quote": "지금까지 이런 맛은 없었다.\n이것은 갈비인가, 통닭인가", "trans": "", "hint": "2019년 · 마약반 형사들이 치킨집을 차렸다", "title": "극한직업", "year": 2019, "who": "고반장 (류승룡)", "alias": ["극한직업"]}, {"n": 9, "cat": "한국영화", "quote": "누구냐, 넌?", "trans": "", "hint": "2003년 · 15년 동안 갇혀 있던 남자", "title": "올드보이", "year": 2003, "who": "오대수 (최민식)", "alias": ["올드보이", "oldboy"]}, {"n": 10, "cat": "한국영화", "quote": "밥은 먹고 다니냐?", "trans": "", "hint": "2003년 · 실화 바탕 · 봉준호 감독", "title": "살인의 추억", "year": 2003, "who": "박두만 (송강호)", "alias": ["살인의추억", "memories of murder"]}, {"n": 11, "cat": "한국영화", "quote": "모히또 가서 몰디브 한 잔 할까?", "trans": "", "hint": "2015년 · 정치 깡패 vs 검사", "title": "내부자들", "year": 2015, "who": "안상구 (이병헌)", "alias": ["내부자들", "내부자"]}, {"n": 12, "cat": "한국영화", "quote": "내가 왕이 될 상인가?", "trans": "", "hint": "2013년 · 얼굴을 읽는 천재 관상가", "title": "관상", "year": 2013, "who": "수양대군 (이정재)", "alias": ["관상"]}, {"n": 13, "cat": "한국영화", "quote": "드루와, 드루와!", "trans": "", "hint": "2013년 · 경찰의 언더커버 작전 · 골드문", "title": "신세계", "year": 2013, "who": "정청 (황정민)", "alias": ["신세계", "new world"]}, {"n": 14, "cat": "한국영화", "quote": "금이빨 빼고\n모조리 씹어먹어 줄게", "trans": "", "hint": "2010년 · 옆집 아이를 구하려는 전당포 주인", "title": "아저씨", "year": 2010, "who": "차태식 (원빈)", "alias": ["아저씨", "the man from nowhere"]}, {"n": 15, "cat": "한국영화", "quote": "진실의 방으로", "trans": "", "hint": "2017년 · 괴물형사 마석도", "title": "범죄도시", "year": 2017, "who": "마석도 (마동석)", "alias": ["범죄도시", "the outlaws"]}, {"n": 16, "cat": "한국영화", "quote": "신에게는 아직\n열두 척의 배가 남아 있사옵니다", "trans": "", "hint": "2014년 · 한국 영화 역대 관객 수 1위", "title": "명량", "year": 2014, "who": "이순신 (최민식)", "alias": ["명량", "the admiral"]}, {"n": 17, "cat": "한국영화", "quote": "라면 먹을래요?", "trans": "", "hint": "2001년 · 사운드 엔지니어와 라디오 PD의 사랑", "title": "봄날은 간다", "year": 2001, "who": "은수 (이영애)", "alias": ["봄날은간다", "봄날은 간다"]}, {"n": 18, "cat": "한국영화", "quote": "넌 나에게 모욕감을 줬어", "trans": "", "hint": "2005년 · 김지운 감독 · 느와르", "title": "달콤한 인생", "year": 2005, "who": "강사장 (김영철)", "alias": ["달콤한인생", "a bittersweet life"]}, {"n": 19, "cat": "한국영화", "quote": "호의가 계속되면,\n그게 권리인 줄 알아요", "trans": "", "hint": "2010년 · 류승완 감독 · 경찰과 검사의 거래", "title": "부당거래", "year": 2010, "who": "주양 검사 (류승범)", "alias": ["부당거래", "the unjust"]}, {"n": 20, "cat": "한국영화", "quote": "꼭 그렇게 다 가져가야만\n속이 후련했냐!", "trans": "", "hint": "2006년 · 출소 후 착하게 살고 싶었던 남자", "title": "해바라기", "year": 2006, "who": "오태식 (김래원)", "alias": ["해바라기"]}, {"n": 21, "cat": "할리우드", "quote": "I'll be back.", "trans": "다시 돌아오겠다.", "hint": "1984년 · 미래에서 온 살인 기계", "title": "터미네이터", "year": 1984, "who": "T-800 (아놀드 슈워제네거)", "alias": ["터미네이터", "terminator", "the terminator", "터미네이터2"]}, {"n": 22, "cat": "할리우드", "quote": "No, I am your father.", "trans": "아니, 내가 네 아버지다.", "hint": "1980년 · 광선검 · 은하계", "title": "스타워즈: 제국의 역습", "year": 1980, "who": "다스 베이더", "alias": ["스타워즈", "스타워즈제국의역습", "제국의역습", "starwars", "star wars", "the empire strikes back"]}, {"n": 23, "cat": "할리우드", "quote": "Life was like a box of chocolates.", "trans": "인생은 초콜릿 상자 같은 거야.", "hint": "1994년 · 달려라, ○○○!", "title": "포레스트 검프", "year": 1994, "who": "포레스트 검프 (톰 행크스)", "alias": ["포레스트검프", "forrest gump", "forestgump", "포레스트껌프"]}, {"n": 24, "cat": "할리우드", "quote": "I'm the king of the world!", "trans": "내가 세상의 왕이다!", "hint": "1997년 · 침몰한 호화 여객선", "title": "타이타닉", "year": 1997, "who": "잭 (레오나르도 디카프리오)", "alias": ["타이타닉", "titanic"]}, {"n": 25, "cat": "할리우드", "quote": "Why so serious?", "trans": "왜 그렇게 심각해?", "hint": "2008년 · 배트맨 시리즈 · 크리스토퍼 놀란", "title": "다크 나이트", "year": 2008, "who": "조커 (히스 레저)", "alias": ["다크나이트", "the dark knight", "dark knight", "배트맨다크나이트"]}, {"n": 26, "cat": "할리우드", "quote": "I'm gonna make him an offer\nhe can't refuse.", "trans": "거절할 수 없는 제안을 하지.", "hint": "1972년 · 마피아 콜레오네 가문", "title": "대부", "year": 1972, "who": "비토 콜레오네 (말론 브란도)", "alias": ["대부", "godfather", "the godfather"]}, {"n": 27, "cat": "할리우드", "quote": "Manners maketh man.", "trans": "매너가 사람을 만든다.", "hint": "2015년 · 수트 입은 영국 비밀 요원", "title": "킹스맨: 시크릿 에이전트", "year": 2015, "who": "해리 하트 (콜린 퍼스)", "alias": ["킹스맨", "kingsman", "킹스맨시크릿에이전트"]}, {"n": 28, "cat": "할리우드", "quote": "I see dead people.", "trans": "죽은 사람들이 보여요.", "hint": "1999년 · 반전 영화의 전설", "title": "식스 센스", "year": 1999, "who": "콜 (할리 조엘 오스먼트)", "alias": ["식스센스", "the sixth sense", "sixth sense"]}, {"n": 29, "cat": "할리우드", "quote": "I love you 3000.", "trans": "3000만큼 사랑해.", "hint": "2019년 · 마블 히어로들의 마지막 전투", "title": "어벤져스: 엔드게임", "year": 2019, "who": "모건 스타크 / 토니 스타크", "alias": ["어벤져스엔드게임", "어벤져스", "엔드게임", "어벤저스", "어벤저스엔드게임", "avengers", "endgame", "avengers endgame"]}, {"n": 30, "cat": "할리우드", "quote": "Carpe diem.\nSeize the day, boys.", "trans": "카르페 디엠. 오늘을 즐겨라.", "hint": "1989년 · 명문 사립학교의 특별한 선생님", "title": "죽은 시인의 사회", "year": 1989, "who": "키팅 선생님 (로빈 윌리엄스)", "alias": ["죽은시인의사회", "dead poets society"]}];
+const qNorm = s => String(s || "").toLowerCase().replace(/[\s:·.,!?'"“”‘’()\-_~]/g, "");
+function qLev(a, b) {
+  if (Math.abs(a.length - b.length) > 1) return 9;
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+function quizCorrect(q, text) {
+  const t = qNorm(text); if (!t) return false;
+  return [q.title, ...(q.alias || [])].map(qNorm).some(a => a === t || (a.length >= 4 && qLev(a, t) <= 1));
+}
+function quizScores(st) {
+  const tot = {};
+  Object.values(st.qres || {}).forEach(list => (list || []).forEach(r => { tot[r.no] = (tot[r.no] || 0) + r.pts; }));
+  return Object.entries(tot).map(([no, p]) => ({ no: +no, p })).sort((a, b) => b.p - a.p || a.no - b.no);
+}
+function quizBoardHtml(st, limit) {
+  const sc = quizScores(st), myNo = S.rosterMe && S.rosterMe.no;
+  if (!sc.length) return `<div class="muted" style="text-align:center;padding:10px">아직 점수가 없어요</div>`;
+  let rank = 0, prev = null;
+  const rows = sc.map((x, i) => { if (x.p !== prev) { rank = i + 1; prev = x.p; } return { ...x, rank }; });
+  const mine = rows.find(x => x.no === myNo);
+  const shown = rows.slice(0, limit);
+  return shown.map(x => `<div class="wrow ${x.no === myNo ? "mine" : ""}"><b>${x.rank <= 3 ? ["🥇", "🥈", "🥉"][x.rank - 1] : x.rank + "위"}</b><span style="flex:1">${who(x.no)}</span><span style="font-weight:900">${x.p}점</span></div>`).join("")
+    + (mine && !shown.includes(mine) ? `<div class="wrow mine"><b>${mine.rank}위</b><span style="flex:1">${who(mine.no)}</span><span style="font-weight:900">${mine.p}점</span></div>` : "");
+}
+function buildQuiz(st) {
+  const q = QUIZ_SET[st.turn], admin = S.me.isAdmin, myNo = S.rosterMe && S.rosterMe.no;
+  const total = QUIZ_SET.length, ctl = admin ? `<div class="ladadmin quizctl" id="qzctl"></div>` : "";
+  if (st.phase === "done") {
+    const sc = quizScores(st), top = sc[0];
+    return `<div class="draw">
+      <div class="prize-label">🎬 명대사 영화 퀴즈 · 최종 결과</div>
+      ${top ? `<div class="prizewin"><div class="pw-prize">🏆 오늘의 영화왕</div><div class="pw-who">${who(top.no)} · ${top.p}점${st.prize ? " · 🎁 " + esc(st.prize) : ""}</div></div>` : ""}
+      <div class="winners" style="margin-top:12px">${quizBoardHtml(st, 35)}</div>${ctl}
+    </div>`;
+  }
+  if (st.phase === "board") return `<div class="draw">
+      <div class="prize-label">🎬 중간 순위 · Q.${String(st.turn + 1).padStart(2, "0")}까지</div>
+      <div class="winners">${quizBoardHtml(st, 10)}</div>${ctl}
+    </div>`;
+  const reveal = st.phase === "ans", hint = st.phase === "hint" || reveal || (st.hintAt || {})["q" + st.turn];
+  const res = (st.qres || {})["q" + st.turn] || [];
+  return `<div class="draw">
+    <div class="prize-label">🎬 Q.${String(q.n).padStart(2, "0")} / ${total} · ${q.cat === "할리우드" ? "할리우드" : "한국 영화"}</div>
+    <div class="qzcard"><div class="qzmark">“</div><div class="qzquote">${esc(q.quote).replace(/\n/g, "<br>")}</div>${q.trans ? `<div class="qztrans">${esc(q.trans)}</div>` : ""}</div>
+    ${hint ? `<div class="qzhint">💡 HINT · ${esc(q.hint)}</div>` : ""}
+    ${reveal ? `<div class="qzans"><small>정답</small><b>${esc(q.title)}</b><span>${q.year}년 · ${esc(q.who)}</span></div>
+      <div class="muted" style="margin:10px 0 6px;font-weight:700">맞힌 사람 ${res.length}명</div>
+      <div class="winners">${res.map((r, i) => `<div class="wrow ${r.no === myNo ? "mine" : ""}"><b>${i + 1}</b><span style="flex:1">${who(r.no)}</span><span style="font-weight:900">+${r.pts}점</span></div>`).join("") || `<div class="muted">아무도 못 맞혔어요 😅</div>`}</div>`
+      : admin ? `<div class="card" style="margin-top:10px"><b>운영진만 보여요:</b> 정답 ${esc(q.title)} · 지금까지 맞힌 사람 <b id="qzcnt">0</b>명</div>`
+      : `<div id="qzme"></div>`}
+    <div class="status" id="qzstatus" style="font-weight:700;color:var(--sub)"></div>
+    ${ctl}
+  </div>`;
+}
+function updateQuiz(st) {
+  const admin = S.me.isAdmin, q = QUIZ_SET[st.turn];
+  if (admin) {
+    const c = $("#qzctl");
+    if (c) {
+      const last = st.turn >= QUIZ_SET.length - 1;
+      const btns = st.phase === "q" ? `<button class="btn ghost" data-qa="hint">💡 힌트 공개</button><button class="btn fire" data-qa="ans">✅ 정답 공개</button>`
+        : st.phase === "hint" ? `<button class="btn fire" data-qa="ans">✅ 정답 공개</button>`
+        : st.phase === "ans" ? `<button class="btn ghost" data-qa="board">📊 순위 보기</button><button class="btn fire" data-qa="${last ? "done" : "next"}">${last ? "🏆 최종 결과" : "➡️ 다음 문제"}</button>`
+        : st.phase === "board" ? `<button class="btn fire" data-qa="${last ? "done" : "next"}">${last ? "🏆 최종 결과" : "➡️ 다음 문제"}</button>`
+        : `<button class="btn ghost" data-qa="end">대기 화면으로</button>`;
+      const sig = st.phase + st.turn;
+      if (c.dataset.sig !== sig) { c.dataset.sig = sig; c.innerHTML = `<div class="row" style="justify-content:center">${btns}</div>${st.phase !== "done" ? `<div class="row" style="justify-content:center;margin-top:8px"><button class="btn ghost sm" data-qa="skip">⏭ 이 문제 건너뛰기</button><button class="btn ghost sm" data-qa="done">퀴즈 끝내기</button></div>` : ""}`; c.querySelectorAll("[data-qa]").forEach(b => b.onclick = () => quizAction(b.dataset.qa)); }
+    }
+    const cnt = $("#qzcnt");
+    if (cnt && q) cnt.textContent = Object.values(((S.sd || {}).a || {})[st.qk] || {}).filter(x => quizCorrect(q, x.text)).length;
+  } else if (q && (st.phase === "q" || st.phase === "hint")) {
+    const box = $("#qzme"); if (!box) return;
+    const d = S.sd || {}, ok = d.text && quizCorrect(q, d.text), tries = d.tries || 0, left = 3 - tries;
+    let html;
+    if (!canPlay(st)) html = `<div class="card muted">이번 퀴즈는 구경해요 👀</div>`;
+    else if (ok) html = `<div class="mewin">🎉 정답! “${esc(d.text)}” · 점수는 정답 공개 때 확정돼요</div>`;
+    else if (left <= 0) html = `<div class="mewin" style="background:#f1ede4;border-color:#cfc6b3">😅 기회를 다 썼어요 · 정답 공개를 기다려요</div>`;
+    else html = `<form class="lrform" id="qzform"><input id="qzin" maxlength="40" autocomplete="off" placeholder="영화 제목은?"><button>정답!</button></form>
+      <div class="muted" style="font-size:12.5px">${tries ? `❌ “${esc(d.text)}” 땡! · ` : ""}남은 기회 ${left}번</div>`;
+    const sig = (ok ? "ok" : "") + tries + (canPlay(st) ? "" : "x");
+    if (box.dataset.sig !== sig) {
+      box.dataset.sig = sig; box.innerHTML = html;
+      if (ok && !S.fired.has("qz" + st.id + st.turn)) { S.fired.add("qz" + st.id + st.turn); confetti(90); navigator.vibrate && navigator.vibrate(120); }
+      const f = $("#qzform");
+      if (f) f.onsubmit = async e => {
+        e.preventDefault(); const v = $("#qzin").value.trim(); if (!v || S.qzSending) return;
+        S.qzSending = true;
+        try { await B.set(`quiz/${st.id}/a/${st.qk}/${S.me.uid}`, { no: S.rosterMe.no, text: v, tries: tries + 1, t: B.serverTs() }); }
+        catch (er) { toast("제출 실패: 이미 정답이 공개됐어요"); }
+        S.qzSending = false;
+      };
+    }
+  } else if (st.phase === "ans" && !S.me.isAdmin) {
+    const res = (st.qres || {})["q" + st.turn] || [], mine = res.find(r => r.no === (S.rosterMe && S.rosterMe.no));
+    if (mine && !S.fired.has("qza" + st.id + st.turn)) { S.fired.add("qza" + st.id + st.turn); toast(`🎉 +${mine.pts}점!`); }
+  }
+  if (st.phase === "done" && !S.fired.has("qzd" + st.id)) { S.fired.add("qzd" + st.id); const sc = quizScores(st); confetti(sc[0] && S.rosterMe && sc[0].no === S.rosterMe.no ? 260 : 100); }
+  const stt = $("#qzstatus");
+  if (stt) { const t = st.phase === "q" ? "명대사를 보고 영화 제목을 맞혀보세요!" : st.phase === "hint" ? "힌트 공개! 이제 맞히면 1점" : ""; if (stt.textContent !== t) stt.textContent = t; }
+}
+async function quizStart() {
+  const from = parseInt($("#qz-from").value) || 0;
+  await B.set("stage", { type: "quiz", id: newId(), turn: from, qk: "q" + from, phase: "q", prize: $("#qz-prize").value.trim(), allow: allowOf(), qAt: B.now(), hintAt: {}, qres: {} });
+  setTab("stage");
+}
+async function quizAction(a) {
+  const st = S.stage; if (!st || st.type !== "quiz" || S.qzBusy) return;
+  S.qzBusy = true;
+  try {
+    if (a === "hint") await B.update("stage", { phase: "hint", ["hintAt/q" + st.turn]: B.now() });
+    else if (a === "ans") {
+      const q = QUIZ_SET[st.turn], ans = (((await B.get("quiz/" + st.id)) || {}).a || {})[st.qk] || {}, hAt = (st.hintAt || {})["q" + st.turn];
+      const ok = Object.values(ans).filter(x => x && x.no != null && quizCorrect(q, x.text)).sort((x, y) => x.t - y.t);
+      const res = ok.map((x, i) => ({ no: x.no, pts: (hAt && x.t >= hAt ? 1 : 2) + (i === 0 ? 1 : 0) }));
+      await B.update("stage", { phase: "ans", ["qres/q" + st.turn]: res });
+    }
+    else if (a === "board") await B.update("stage", { phase: "board" });
+    else if (a === "next" || a === "skip") {
+      const n = st.turn + 1;
+      if (n >= QUIZ_SET.length) return quizFinish(st);
+      await B.update("stage", { phase: "q", turn: n, qk: "q" + n, qAt: B.now() });
+    }
+    else if (a === "done") { if (st.phase === "done" || confirm("퀴즈를 끝내고 최종 결과를 발표할까요?")) await quizFinish(st); }
+    else if (a === "end") await B.set("stage", { type: "idle", id: newId(), msg: "곧 다음 게임이 시작돼요!" });
+  } finally { setTimeout(() => S.qzBusy = false, 300); }
+}
+async function quizFinish(st) {
+  if (st.phase === "q" || st.phase === "hint") { // 정답 공개 전에 끝내면 지금 문제도 채점
+    const q = QUIZ_SET[st.turn], ans = (((await B.get("quiz/" + st.id)) || {}).a || {})[st.qk] || {}, hAt = (st.hintAt || {})["q" + st.turn];
+    const ok = Object.values(ans).filter(x => x && x.no != null && quizCorrect(q, x.text)).sort((x, y) => x.t - y.t);
+    st = { ...st, qres: { ...(st.qres || {}), ["q" + st.turn]: ok.map((x, i) => ({ no: x.no, pts: (hAt && x.t >= hAt ? 1 : 2) + (i === 0 ? 1 : 0) })) } };
+    await B.update("stage", { ["qres/q" + st.turn]: st.qres["q" + st.turn] });
+  }
+  await B.update("stage", { phase: "done" });
+  const top = quizScores(st)[0];
+  if (st.prize && top) await B.update("history", { [st.id + "_w"]: { game: "quiz", prize: st.prize, no: top.no, name: nameOfNo(top.no), ts: B.now() } });
 }
 
 /* ---------- 꽃가루 ---------- */
